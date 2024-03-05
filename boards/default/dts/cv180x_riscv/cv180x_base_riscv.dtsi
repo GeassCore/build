@@ -146,6 +146,7 @@
 
 	watchdog0: cv-wd@0x3010000 {
 		interrupts = <58 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-parent = <&plic0>;
 	};
 
 	spinand:cv-spinf@4060000 {
@@ -158,22 +159,22 @@
 		interrupt-parent = <&plic0>;
 	};
 
-	spi0:spi0@04180000 {
+	spi0:spi@04180000 {
 		interrupts = <54 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-parent = <&plic0>;
 	};
 
-	spi1:spi1@04190000 {
+	spi1:spi@04190000 {
 		interrupts = <55 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-parent = <&plic0>;
 	};
 
-	spi2:spi2@041A0000 {
+	spi2:spi@041A0000 {
 		interrupts = <56 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-parent = <&plic0>;
 	};
 
-	spi3:spi3@041B0000 {
+	spi3:spi@041B0000 {
 		interrupts = <57 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-parent = <&plic0>;
 	};

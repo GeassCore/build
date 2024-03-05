@@ -387,17 +387,21 @@ choice
 		bool "u-boot-2017.07"
 	config UBOOT_2021_10
 		bool "u-boot-2021.10"
+	config UBOOT_2024_01
+		bool "u-boot"
 endchoice
 
 config UBOOT_SRC
 	string
 	default "u-boot" if UBOOT_2017_07
 	default "u-boot-2021.10" if UBOOT_2021_10
+	default "u-boot" if UBOOT_2024_01
 
 config UBOOT_SPL_CUSTOM
 	bool "Generate the fip_spl.bin contain u-boot-spl"
 	default n
 	depends on UBOOT_2021_10
+	depends on UBOOT_2024_01
 	help
 	  Set fip_spl.bin contain u-boot-spl or u-boot.
 endmenu
@@ -411,6 +415,8 @@ choice
 		bool "linux 4.9.38"
 	config KERNEL_SRC_5.10
 		bool "linux 5.10"
+	config KERNEL_SRC_6.6
+		bool "linux 6.6"
 endchoice
 
 config KERNEL_SRC
@@ -418,6 +424,7 @@ config KERNEL_SRC
 	default "linux-linaro-stable" if KERNEL_SRC_4_9
 	default "linux" if KERNEL_SRC_4_19
 	default "linux_5.10" if KERNEL_SRC_5.10
+	default "linux_6.6" if KERNEL_SRC_6.6
 	help
 	  Set kernel source code.
 
@@ -485,6 +492,12 @@ config ROOTFS_OVERLAYFS
 	default y
 	help
 	  Enable rootfs with overlayfs.
+
+config BUILDROOT_FS
+	bool "Enable buildroot generate rootfs"
+	default n
+	help
+	  Enable buildroot generate rootfs.
 
 config USE_4K_ERASE_SIZE_FOR_JFFS2
 	bool "Use 4K erase size for jffs2 filesystem"

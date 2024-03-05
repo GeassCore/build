@@ -864,6 +864,21 @@ function cvi_setup_env()
       return 1
     fi
   fi
+
+  export SYSTEM_OUT_DIR
+  export CROSS_COMPILE_PATH
+  # buildroot config
+  if [ -z "${SG_BOARD// }" ]; then
+    print_error "No SG_BOARD specified!"
+    return 1
+  fi
+  # export BR_DIR="$TOP_DIR"/buildroot-2021.05
+  export BR_DIR="$TOP_DIR"/buildroot
+  export BR_BOARD=${SG_BOARD}
+  export BR_OVERLAY_DIR=${BR_DIR}/board/${SG_VENDOR}/${SG_BOARD}/overlay
+  export BR_DEFCONFIG=${BR_BOARD}_defconfig
+  export BR_ROOTFS_DIR="$OUTPUT_DIR"/tmp-rootfs
+  export BR_SG_VENDOR_DIR=${BR_DIR}/board/${SG_VENDOR}
 }
 
 cvi_print_env()

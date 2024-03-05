@@ -130,8 +130,14 @@ ${UBOOT_OUTPUT_CONFIG_PATH}: ${UBOOT_DEFAULT_CONFIG_PATH} ${UBOOT-SPL_DEFAULT_CO
 	$(call print_target)
 	${Q}echo "u-boot's defconfig is updated. Use it."
 	${Q}mkdir -p $(dir ${UBOOT_OUTPUT_CONFIG_PATH})
+ifeq ($(UBOOT_SRC), u-boot-2021.10)
 	${Q}cmp -s ${UBOOT_DEFAULT_CONFIG_PATH} ${UBOOT_OUTPUT_CONFIG_PATH} || \
 		${Q}cp -vb ${UBOOT_DEFAULT_CONFIG_PATH} ${UBOOT_OUTPUT_CONFIG_PATH}
+endif
+ifeq ($(UBOOT_SRC), u-boot)
+	${Q}cp -vb ${UBOOT_PATH}/configs/milkv_duo256_defconfig ${UBOOT_OUTPUT_CONFIG_PATH}
+endif
+
 ifeq ($(CONFIG_UBOOT_SPL_CUSTOM),y)
 		${Q}-cat ${UBOOT-SPL_DEFAULT_CONFIG_PATH} >> ${UBOOT_OUTPUT_CONFIG_PATH}
 endif
@@ -179,13 +185,20 @@ u-boot-build: memory-map
 u-boot-build: u-boot-dts
 u-boot-build: ${UBOOT_PATH}/${UBOOT_OUTPUT_FOLDER} ${UBOOT_CVIPART_DEP} ${UBOOT_OUTPUT_CONFIG_PATH}
 	$(call print_target)
+ifeq ($(UBOOT_SRC), u-boot-2021.10)
 	${Q}ln -snrf ${CVI_BOARD_MEMMAP_H_PATH} ${UBOOT_PATH}/include/
 	${Q}rm -f ${UBOOT_CVI_BOARD_INIT_PATH}
 	${Q}ln -s ${BUILD_PATH}/boards/${CHIP_ARCH_L}/${PROJECT_FULLNAME}/u-boot/cvi_board_init.c ${UBOOT_CVI_BOARD_INIT_PATH}
 	${Q}rm -f ${UBOOT_CVITEK_PATH}
 	${Q}ln -s ${BUILD_PATH}/boards/${CHIP_ARCH_L}/${PROJECT_FULLNAME}/u-boot/cvitek.h ${UBOOT_CVITEK_PATH}
+endif
 	${Q}$(MAKE) -j${NPROC} -C ${UBOOT_PATH} olddefconfig
 	${Q}$(MAKE) -j${NPROC} -C ${UBOOT_PATH} all
+ifeq ($(UBOOT_SRC), u-boot)
+	${Q}cp -vb ${UBOOT_PATH}/${UBOOT_OUTPUT_FOLDER}/arch/riscv/dts/cv1800b-milkv-duo.dtb \
+			${UBOOT_PATH}/${UBOOT_OUTPUT_FOLDER}/arch/riscv/dts/${CHIP}_${BOARD}.dtb
+endif
+
 	${Q}cat ${UBOOT_PATH}/${UBOOT_OUTPUT_FOLDER}/u-boot.bin > ${UBOOT_PATH}/${UBOOT_OUTPUT_FOLDER}/u-boot-raw.bin
 ifeq (${CONFIG_UBOOT_SPL_CUSTOM},y)
 	${Q}cat ${UBOOT_PATH}/${UBOOT_OUTPUT_FOLDER}/spl/u-boot-spl.bin > ${UBOOT_PATH}/${UBOOT_OUTPUT_FOLDER}/spl/u-boot-spl-raw.bin
@@ -535,12 +548,113 @@ define raw2cimg
 	${Q}python3 $(COMMON_TOOLS_PATH)/image_tool/raw2cimg.py $(OUTPUT_DIR)/rawimages/${1} $(OUTPUT_DIR) $(FLASH_PARTITION_XML)
 endef
 
+
+# BR_OVERLAY_DIR
+# BR_ROOTFS_RAWIMAGE
+br-rootfs-prepare:export CROSS_COMPILE_KERNEL=$(patsubst "%",%,$(CONFIG_CROSS_COMPILE_KERNEL))
+br-rootfs-prepare:export CROSS_COMPILE_SDK=$(patsubst "%",%,$(CONFIG_CROSS_COMPILE_SDK))
+br-rootfs-prepare:
+	$(call print_target)
+ifeq ($(STORAGE_TYPE),$(filter $(STORAGE_TYPE),spinor spinand))
+	#${Q}cp -r ${RAMDISK_PATH}/rootfs/buildroot_fs/arm/* $(BR_ROOTFS_DIR)
+	$(call TARGET_PACKAGE_INSTALL_BR_ROOTFS)
+	${Q}mkdir -p $(BR_ROOTFS_DIR)/etc/init.d/
+	${Q}python3 $(COMMON_TOOLS_PATH)/image_tool/create_automount.py $(FLASH_PARTITION_XML) $(BR_ROOTFS_DIR)/etc/init.d/
+	# Generate /etc/fw_env.config
+	# ${Q}mkdir -p $(BR_ROOTFS_DIR)/etc
+	${Q}python3 $(COMMON_TOOLS_PATH)/image_tool/mkcvipart.py $(FLASH_PARTITION_XML) $(BR_ROOTFS_DIR)/etc --fw_env
+endif
+
+	# copy ko and mmf libs
+	${Q}mkdir -p $(BR_ROOTFS_DIR)/mnt/system
+	${Q}cp -arf ${SYSTEM_OUT_DIR}/* $(BR_ROOTFS_DIR)/mnt/system/
+
+	# copy milkv overlay files
+ifeq ($(SG_VENDOR), milkv)
+	${Q}cp -arf $(TOP_DIR)/device/common/overlay/* $(BR_ROOTFS_DIR)/
+	${Q}cp -arf $(TOP_DIR)/device/$(SG_BOARD)/overlay/* $(BR_ROOTFS_DIR)/
+	${Q}cp -arf $(TOP_DIR)/device/common/br_overlay/* $(BR_ROOTFS_DIR)/
+	${Q}rm -rf $(BR_OVERLAY_DIR)
+endif
+ifeq ($(SG_VENDOR), sophpi)
+	${Q}cp -arf $(TOP_DIR)/device/common/overlay/* $(BR_ROOTFS_DIR)/
+	${Q}cp -arf $(TOP_DIR)/device/common/br_overlay/* $(BR_ROOTFS_DIR)/
+	${Q}rm -rf $(BR_OVERLAY_DIR)
+endif
+	# strip
+	${Q}find $(BR_ROOTFS_DIR) -name "*.ko" -type f -printf 'striping %p\n' -exec $(CROSS_COMPILE_KERNEL)strip --strip-unneeded {} \;
+	${Q}find $(BR_ROOTFS_DIR) -name "*.so*" -type f -printf 'striping %p\n' -exec $(CROSS_COMPILE_KERNEL)strip --strip-all {} \;
+	${Q}find $(BR_ROOTFS_DIR) -executable -type f ! -name "*.sh" ! -path "*etc*" ! -path "*.ko" -printf 'striping %p\n' -exec $(CROSS_COMPILE_SDK)strip --strip-all {} 2>/dev/null \;
+	${Q}mkdir -p $(BR_OVERLAY_DIR)
+	${Q}cp -arf $(BR_ROOTFS_DIR)/* $(BR_OVERLAY_DIR)
+
+	# create partition mounting points and move sytems to read-write partitions
+ifeq ($(STORAGE_TYPE), spinand)
+	# ${Q}mkdir -p $(BR_OVERLAY_DIR)/mnt/cfg
+	# ${Q}mkdir -p $(BR_OVERLAY_DIR)/mnt/data
+	${Q}mkdir -p $(OUTPUT_DIR)/system
+	${Q}cp -arf $(BR_OVERLAY_DIR)/mnt/system/* $(OUTPUT_DIR)/system
+endif
+
+# export TARGET_OUTPUT_DIR=$(BR_DIR)/output/$(BR_BOARD)
+
+br-rootfs-pack:export TARGET_OUTPUT_DIR=$(BR_DIR)/output
+br-rootfs-pack:
+	$(call print_target)
+	${Q}rm -rf $(TARGET_OUTPUT_DIR)/*
+	${Q}$(MAKE) -C $(BR_DIR) $(BR_DEFCONFIG) BR2_TOOLCHAIN_EXTERNAL_PATH=$(CROSS_COMPILE_PATH)
+	${Q}$(BR_DIR)/utils/brmake -j${NPROC} -C $(BR_DIR)
+	# ${NPROC}
+	${Q}rm -rf $(BR_ROOTFS_DIR)/*
+	${Q}rm -rf $(BR_SG_VENDOR_DIR)
+	# copy rootfs to rawimg dir
+ifeq ($(STORAGE_TYPE), spinand)
+	${Q}python3 $(COMMON_TOOLS_PATH)/spinand_tool/mkubiimg.py --ubionly $(FLASH_PARTITION_XML) ROOTFS $(TARGET_OUTPUT_DIR)/images/rootfs.squashfs $(OUTPUT_DIR)/rawimages/rootfs.spinand -b $(CONFIG_NANDFLASH_BLOCKSIZE) -p $(CONFIG_NANDFLASH_PAGESIZE)
+	$(call raw2cimg ,rootfs.$(STORAGE_TYPE))
+else ifeq ($(STORAGE_TYPE), spinor)
+	${Q}cp $(TARGET_OUTPUT_DIR)/images/rootfs.squashfs $(OUTPUT_DIR)/rawimages/rootfs.$(STORAGE_TYPE)
+	$(call raw2cimg ,rootfs.$(STORAGE_TYPE))
+else
+	${Q}cp $(TARGET_OUTPUT_DIR)/images/rootfs.ext4 $(OUTPUT_DIR)/rawimages/rootfs_ext4.$(STORAGE_TYPE)
+	$(call raw2cimg ,rootfs_ext4.$(STORAGE_TYPE))
+endif	
+
+ifeq ($(CONFIG_BUILDROOT_FS),y)
+rootfs:br-rootfs-prepare
+rootfs:br-rootfs-pack
+else
 rootfs:rootfs-pack
 rootfs:
 	$(call print_target)
 ifneq ($(STORAGE_TYPE), sd)
 	$(call raw2cimg ,rootfs.$(STORAGE_TYPE))
 endif
+endif
+
+up_rootfs:
+	$(call print_target)
+ifeq ($(CONFIG_BUILDROOT_FS),y)
+	# ${Q}ln -s $(OUTPUT_DIR)/rootfs $(OUTPUT_DIR)/fs
+	${Q}tar xf $(BR_DIR)/output/images/rootfs.tar.xz -C $(OUTPUT_DIR)/rootfs
+else
+	${Q}ln -s $(OUTPUT_DIR)/rootfs $(OUTPUT_DIR)/fs
+endif
+
+sd_image:
+	$(call print_target)
+	-${Q}rm  $(OUTPUT_DIR)/fs
+ifeq ($(CONFIG_BUILDROOT_FS),y)
+	${Q}rm $(OUTPUT_DIR)/br-rootfs -rf
+	${Q}ln -s $(OUTPUT_DIR)/br-rootfs $(OUTPUT_DIR)/fs
+	${Q}mkdir $(OUTPUT_DIR)/br-rootfs
+	# ${Q}tar xvf $(BR_DIR)/output/$(BR_BOARD)/images/rootfs.tar.xz -C $(OUTPUT_DIR)/br-rootfs
+	# ${Q}tar xvf $(BR_DIR)/output/images/rootfs.tar.xz -C $(OUTPUT_DIR)/br-rootfs
+	${Q}ln -s $(OUTPUT_DIR)/rootfs $(OUTPUT_DIR)/fs
+	${Q}tar xf $(BR_DIR)/output/images/rootfs.tar.xz -C $(OUTPUT_DIR)/rootfs
+else
+	${Q}ln -s $(OUTPUT_DIR)/rootfs $(OUTPUT_DIR)/fs
+endif
+	$(COMMON_TOOLS_PATH)/sd_tools/sd_gen_burn_image.sh $(OUTPUT_DIR)
 
 jffs2:
 	$(call print_target)

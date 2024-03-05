@@ -243,7 +243,16 @@ function pack_burn_image
   cp $COMMON_TOOLS_PATH/sd_tools/genimage.cfg $COMMON_TOOLS_PATH/sd_tools/genimage.cfg.tmp
   sed -i 's/sophpi-duo.img/'"$image"'/' $COMMON_TOOLS_PATH/sd_tools/genimage.cfg.tmp
   genimage --config $COMMON_TOOLS_PATH/sd_tools/genimage.cfg.tmp  --rootpath $OUTPUT_DIR/rootfs --inputpath $OUTPUT_DIR --outputpath $OUTPUT_DIR
+  rm $COMMON_TOOLS_PATH/sd_tools/genimage.cfg.tmp
+  rm -rf sophpi-duo-latest.zip
+  zip sophpi-duo-latest.zip $image
+  popd
+)}
 
+function pack_update_rootfs
+{(
+  pushd "$BUILD_PATH"
+  make up_rootfs || return "$?"
   popd
 )}
 
